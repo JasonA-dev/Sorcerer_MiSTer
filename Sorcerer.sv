@@ -177,12 +177,12 @@ module emu
 
 assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
-assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+assign {UART_RTS, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign {SDRAM_DQ, SDRAM_A, SDRAM_BA, SDRAM_CLK, SDRAM_CKE, SDRAM_DQML, SDRAM_DQMH, SDRAM_nWE, SDRAM_nCAS, SDRAM_nRAS, SDRAM_nCS} = 'Z;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = '0;  
 
-assign VGA_SL = 0;
+
 assign VGA_F1 = 0;
 assign VGA_SCALER  = 0;
 assign VGA_DISABLE = 0;
@@ -218,7 +218,7 @@ localparam CONF_STR = {
 	"P1-, -= Options in page 1 =-;",
 	"P1-;",
 	"P1O[5],Option 1-1,Off,On;",
-	"d0P1F1,BIN;",
+	"F1,BIN;",
 	"H0P1O[10],Option 1-2,Off,On;",
 	"-;",
 	"P2,Test Page 2;",
@@ -244,6 +244,7 @@ wire ioctl_wr;
 wire [1:0] ioctl_index;
 wire [15:0] ioctl_dout;
 
+wire [21:0] gamma_bus;
 wire forced_scandoubler;
 wire   [1:0] buttons;
 wire [127:0] status;
@@ -254,7 +255,7 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
 	.EXT_BUS(),
-	.gamma_bus(),
+	.gamma_bus(gamma_bus),
 
 	.forced_scandoubler(forced_scandoubler),
 
@@ -309,17 +310,6 @@ always @(posedge clk_sys or posedge reset) begin
     end
 end
 
-assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL = ce_pix;
-
-assign VGA_DE = ~(HBlank | VBlank);
-assign VGA_HS = HSync;
-assign VGA_VS = VSync;
-
-assign VGA_R = video ? 6'h3F : 6'h00;
-assign VGA_G = video ? 6'h3F : 6'h00;
-assign VGA_B = video ? 6'h3F : 6'h00;
-
 ////////////////////////////////////////////////////////////
 // Keyboard
 ////////////////////////////////////////////////////////////
@@ -343,22 +333,24 @@ always @(posedge clk12) begin
     end
 end
 
+wire        uart_en = 1'b0;
+
 always @(posedge clk12) begin
 `ifdef USE_AUDIO_IN
 	cass_in[0] <= AUDIO_IN;
 `else
-	cass_in[0] <= UART_RX;
+	cass_in[0] <= UART_RXD;
 `endif
 	cass_in[1] <= cass_in[0];
 end
 
 `ifdef USE_EXPANSION
 assign MOTOR_CTRL = cass_motor ? 1'b0 : 1'bZ;
-assign UART_TX = uart_tx;
+assign UART_TXD = uart_tx;
 assign UART_RTS = 1'b0;
 assign EXP7 = 1'bZ;
 `else
-assign UART_TX = uart_en ? uart_tx : ~cass_motor;
+assign UART_TXD = uart_en ? uart_tx : ~cass_motor;
 `endif
 
 reg rom_loaded = 0;
@@ -373,6 +365,9 @@ wire        ram_rd, ram_wr;
 wire  [7:0] ram_dout, ram_din;
 
 reg   [1:0] cass_in;
+wire        cass_out;
+wire        cass_motor;
+wire        uart_tx;
 
 sorcerer sorcerer (
 	.RESET(reset),
@@ -387,8 +382,8 @@ sorcerer sorcerer (
 	.CASS_OUT(cass_out),
 	.CASS_CTRL(cass_motor),
 	.PAL(1'b1),
-	.ALTTIMINGS(1'b1),
-	.TURBO(1'b1),
+	.ALTTIMINGS(1'b0),
+	.TURBO(1'b0),
 
 	.KEY_STROBE(key_strobe),
 	.KEY_PRESSED(key_pressed),
@@ -403,7 +398,7 @@ sorcerer sorcerer (
 	.RAM_DOUT(ram_dout),
 	.RAM_DIN(ram_din),
 
-	.UART_RX(UART_RX),
+	.UART_RX(UART_RXD),
 	.UART_TX(uart_tx),
 
 	.DL(ioctl_download),
@@ -431,4 +426,37 @@ dpram #(
     .q_a       (ram_dout)
 );
 
+///////////////////   VIDEO   ////////////////////
+wire rotate_ccw = 0;
+wire no_rotate = 1'b1;
+wire flip = ~no_rotate;
+wire video_rotated;
+
+//screen_rotate screen_rotate (.*);
+
+assign VGA_SL = 0;
+assign CLK_VIDEO = clk_sys;
+assign CE_PIXEL = ce_pix;
+
+assign VGA_DE = ~(HBlank | VBlank);
+assign VGA_HS = HSync;
+assign VGA_VS = VSync;
+
+assign VGA_R = video ? 6'h3F : 6'h00;
+assign VGA_G = video ? 6'h3F : 6'h00;
+assign VGA_B = video ? 6'h3F : 6'h00;
+
+/*
+arcade_video #(256,24) arcade_video
+(
+	.*,
+	.clk_video(clk_sys),
+	.RGB_in({ video, video, video }),
+	.HBlank(HBlank),
+	.VBlank(VBlank),
+	.HSync(HSync),
+	.VSync(VSync),
+	.fx(0)
+);
+*/
 endmodule
