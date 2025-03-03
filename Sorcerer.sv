@@ -273,12 +273,13 @@ hps_io #(.CONF_STR(CONF_STR)) hps_io
 
 ///////////////////////   CLOCKS   ///////////////////////////////
 
-wire clk_sys;
+wire clk_sys,clk12;
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_sys)
+	.outclk_0(clk_sys),
+	.outclk_1(clk12),
 );
 
 wire reset = RESET | status[0] | buttons[1] | ~rom_loaded;
@@ -293,11 +294,23 @@ wire HBlank;
 wire HSync;
 wire VBlank;
 wire VSync;
-// wire ce_pix;
 wire [7:0] video;
+wire ce_pix;
+
+reg [1:0] count = 2'b00; // 2-bit counter
+always @(posedge clk_sys or posedge reset) begin
+    if (reset) begin
+        count   <= 2'b00;
+        ce_pix <= 0;
+    end else begin
+        count <= count + 1;
+        if (count == 2'b11) // Toggle clk_out every 4 cycles
+            ce_pix <= ~ce_pix;
+    end
+end
 
 assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL = 1'b1;
+assign CE_PIXEL = ce_pix;
 
 assign VGA_DE = ~(HBlank | VBlank);
 assign VGA_HS = HSync;
@@ -322,13 +335,31 @@ assign key_pressed  = ps2_key[9];
 assign key_code     = ps2_key[7:0];
 
 // Simple strobe on any change of ps2_key[10]
-always @(posedge clk_sys) begin
+always @(posedge clk12) begin
     reg old_state;
     old_state <= ps2_key[10];
     if(old_state != ps2_key[10]) begin
        key_strobe <= ~key_strobe;
     end
 end
+
+always @(posedge clk12) begin
+`ifdef USE_AUDIO_IN
+	cass_in[0] <= AUDIO_IN;
+`else
+	cass_in[0] <= UART_RX;
+`endif
+	cass_in[1] <= cass_in[0];
+end
+
+`ifdef USE_EXPANSION
+assign MOTOR_CTRL = cass_motor ? 1'b0 : 1'bZ;
+assign UART_TX = uart_tx;
+assign UART_RTS = 1'b0;
+assign EXP7 = 1'bZ;
+`else
+assign UART_TX = uart_en ? uart_tx : ~cass_motor;
+`endif
 
 reg rom_loaded = 0;
 always @(posedge clk_sys) begin
@@ -337,14 +368,15 @@ always @(posedge clk_sys) begin
     if (ioctl_downlD & ~ioctl_download) rom_loaded <= 1;
 end
 
-wire [15:0] ram_addr;
-wire [7:0]  ram_data_out;
-wire        ram_we, ram_re;
-wire [7:0]  ram_data_in;
+wire [16:0] ram_addr;
+wire        ram_rd, ram_wr;
+wire  [7:0] ram_dout, ram_din;
+
+reg   [1:0] cass_in;
 
 sorcerer sorcerer (
 	.RESET(reset),
-	.CLK12(clk_sys),
+	.CLK12(clk12),
 	.HSYNC(HSync),
 	.VSYNC(VSync),
 	.HBLANK(HBlank),
@@ -392,11 +424,11 @@ dpram #(
     .addr_width_g (16)
 ) ram (
     .clock     (clk_sys),
-    .ram_cs    (ram_re),
-    .wren_a    (ram_we),
+    .ram_cs    (ram_rd),
+    .wren_a    (ram_wr),
     .address_a (ram_addr),
-    .data_a    (ram_data_in),
-    .q_a       (ram_data_out)
+    .data_a    (ram_din),
+    .q_a       (ram_dout)
 );
 
 endmodule

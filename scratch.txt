@@ -1,0 +1,26 @@
+T80pa cpu
+(
+	.reset_n ( ~RESET        ),  
+	
+	.clk     ( CLK12     ), 
+	
+	.CEN_p   ( TURBO ? cen4 : cen2       ),	
+
+	.a       ( cpu_addr            ),   
+	.DO      ( cpu_dout      ),   
+	.di      ( cpu_din       ),   
+	
+	.rd_n    ( rd_n          ),   
+	.wr_n    ( wr_n          ),   
+	
+	.iorq_n  ( iorq_n        ),   
+	.mreq_n  ( mreq_n        ),   
+
+	.int_n   ( int_n         ),   
+	.nmi_n   ( nmi_n     ),   
+
+	.m1_n    ( m1_n          ),   
+	.rfsh_n  ( rfsh_n            ),   
+	.busrq_n ( 1'b1             ),   
+	.wait_n  ( ~DL        )    
+);
