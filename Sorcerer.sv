@@ -237,6 +237,13 @@ localparam CONF_STR = {
 	"V,v",`BUILD_DATE 
 };
 
+
+wire ioctl_download;
+wire [15:0] ioctl_addr;
+wire ioctl_wr;
+wire [1:0] ioctl_index;
+wire [15:0] ioctl_dout;
+
 wire forced_scandoubler;
 wire   [1:0] buttons;
 wire [127:0] status;
@@ -274,33 +281,82 @@ pll pll
 	.outclk_0(clk_sys)
 );
 
-wire reset = RESET | status[0] | buttons[1];
+wire reset = RESET | status[0] | buttons[1] | ~rom_loaded;
 
 wire [1:0] col = status[4:3];
+
+///// VIDEO ////
+//
+//
 
 wire HBlank;
 wire HSync;
 wire VBlank;
 wire VSync;
-wire ce_pix;
+// wire ce_pix;
 wire [7:0] video;
 
+assign CLK_VIDEO = clk_sys;
+assign CE_PIXEL = 1'b1;
+
+assign VGA_DE = ~(HBlank | VBlank);
+assign VGA_HS = HSync;
+assign VGA_VS = VSync;
+
+assign VGA_R = video ? 6'h3F : 6'h00;
+assign VGA_G = video ? 6'h3F : 6'h00;
+assign VGA_B = video ? 6'h3F : 6'h00;
+
+////////////////////////////////////////////////////////////
+// Keyboard
+////////////////////////////////////////////////////////////
+
+reg         key_strobe;
+wire        key_pressed;
+wire        key_extended;
+wire  [7:0] key_code;
+wire        upcase;
+
+assign key_extended = ps2_key[8];
+assign key_pressed  = ps2_key[9];
+assign key_code     = ps2_key[7:0];
+
+// Simple strobe on any change of ps2_key[10]
+always @(posedge clk_sys) begin
+    reg old_state;
+    old_state <= ps2_key[10];
+    if(old_state != ps2_key[10]) begin
+       key_strobe <= ~key_strobe;
+    end
+end
+
+reg rom_loaded = 0;
+always @(posedge clk_sys) begin
+    reg ioctl_downlD;
+    ioctl_downlD <= ioctl_download;
+    if (ioctl_downlD & ~ioctl_download) rom_loaded <= 1;
+end
+
+wire [15:0] ram_addr;
+wire [7:0]  ram_data_out;
+wire        ram_we, ram_re;
+wire [7:0]  ram_data_in;
 
 sorcerer sorcerer (
 	.RESET(reset),
-	.CLK12(clk12),
-	.HSYNC(hs),
-	.VSYNC(vs),
-	.HBLANK(hb),
-	.VBLANK(vb),
+	.CLK12(clk_sys),
+	.HSYNC(HSync),
+	.VSYNC(VSync),
+	.HBLANK(HBlank),
+	.VBLANK(VBlank),
 	.VIDEO(video),
 	.AUDIO(audio),
 	.CASS_IN(cass_in[1]),
 	.CASS_OUT(cass_out),
 	.CASS_CTRL(cass_motor),
-	.PAL(pal),
-	.ALTTIMINGS(timings),
-	.TURBO(turbo),
+	.PAL(1'b1),
+	.ALTTIMINGS(1'b1),
+	.TURBO(1'b1),
 
 	.KEY_STROBE(key_strobe),
 	.KEY_PRESSED(key_pressed),
@@ -308,7 +364,7 @@ sorcerer sorcerer (
 	.KEY_CODE(key_code),
 	.UPCASE(upcase),
 
-	.RAM_SIZE(ramsz),
+	.RAM_SIZE(2),
 	.RAM_ADDR(ram_addr),
 	.RAM_RD(ram_rd),
 	.RAM_WR(ram_wr),
@@ -318,31 +374,29 @@ sorcerer sorcerer (
 	.UART_RX(UART_RX),
 	.UART_TX(uart_tx),
 
-	.DL(ioctl_downl),
-	.DL_CLK(clk48),
+	.DL(ioctl_download),
+	.DL_CLK(clk_sys),
 	.DL_ADDR(ioctl_addr[15:0]),
 	.DL_DATA(ioctl_dout),
 	.DL_WE(ioctl_wr),
 	.DL_ROM(ioctl_index == 0),
 	.DL_PAC(ioctl_index == 1),
 	.DL_TAPE(ioctl_index == 2),
+
 	.UNL_PAC(status[1]),
 	.LED(ledb)
 );
 
-
-assign CLK_VIDEO = clk_sys;
-assign CE_PIXEL = ce_pix;
-
-assign VGA_DE = ~(HBlank | VBlank);
-assign VGA_HS = HSync;
-assign VGA_VS = VSync;
-assign VGA_G  = (!col || col == 2) ? video : 8'd0;
-assign VGA_R  = (!col || col == 1) ? video : 8'd0;
-assign VGA_B  = (!col || col == 3) ? video : 8'd0;
-
-reg  [26:0] act_cnt;
-always @(posedge clk_sys) act_cnt <= act_cnt + 1'd1; 
-assign LED_USER    = act_cnt[26]  ? act_cnt[25:18]  > act_cnt[7:0]  : act_cnt[25:18]  <= act_cnt[7:0];
+dpram #(
+    .data_width_g (8),
+    .addr_width_g (16)
+) ram (
+    .clock     (clk_sys),
+    .ram_cs    (ram_re),
+    .wren_a    (ram_we),
+    .address_a (ram_addr),
+    .data_a    (ram_data_in),
+    .q_a       (ram_data_out)
+);
 
 endmodule
